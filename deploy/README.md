@@ -12,10 +12,207 @@
 
 ---
 
+# Пошаговые команды деплоя (от нуля до запуска)
+
+Команды по порядку для **Ubuntu/Debian**. Выполнять на сервере под пользователем с sudo.
+
+---
+
+### Шаг 0. Обновление системы (рекомендуется)
+
+```bash
+sudo apt update && sudo apt upgrade -y
+```
+
+---
+
+### Шаг 1. Установка Docker
+
+```bash
+# Зависимости
+sudo apt install -y ca-certificates curl gnupg
+
+# Репозиторий Docker
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+# Ubuntu:
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+# Debian (вместо ubuntu укажите debian и bookworm):
+# echo "deb [arch=...] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Установка
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+```
+
+Проверка:
+
+```bash
+docker --version
+docker compose version
+```
+
+---
+
+### Шаг 2. Установка Nginx и Certbot
+
+```bash
+sudo apt install -y nginx certbot
+```
+
+Проверка:
+
+```bash
+nginx -v
+certbot --version
+```
+
+---
+
+### Шаг 3. Клонирование проекта
+
+```bash
+# Каталог приложения (можно изменить)
+export APP_DIR=/var/www/typing-trainer
+sudo mkdir -p "$APP_DIR"
+sudo chown "$USER:$USER" "$APP_DIR"
+cd "$APP_DIR"
+
+# Клонирование (подставьте свой URL репозитория)
+git clone https://github.com/YOUR_USER/YOUR_REPO.git .
+```
+
+---
+
+### Шаг 4. Файл окружения .env
+
+```bash
+cd "$APP_DIR"
+cp env.example .env
+nano .env
+```
+
+Обязательно задать:
+
+- `JWT_SECRET_KEY` — случайная строка минимум 32 символа
+- `POSTGRES_PASSWORD` — пароль БД (не оставлять `postgres` в проде)
+- `CORS_ORIGINS` — добавить `https://wtyping.ru,https://www.wtyping.ru`
+- `FRONTEND_PORT=8080`
+
+Пример для продакшена:
+
+```env
+POSTGRES_PASSWORD=ваш_надёжный_пароль
+JWT_SECRET_KEY=ваш_секретный_ключ_минимум_32_символа
+CORS_ORIGINS=https://wtyping.ru,https://www.wtyping.ru,http://localhost
+FRONTEND_PORT=8080
+```
+
+---
+
+### Шаг 5. Каталог для Certbot (ACME challenge)
+
+```bash
+sudo mkdir -p /var/www/certbot
+sudo chown -R www-data:www-data /var/www/certbot
+```
+
+---
+
+### Шаг 6. Первый конфиг Nginx (только HTTP)
+
+```bash
+sudo cp "$APP_DIR/deploy/nginx-wtyping.ru-initial.conf" /etc/nginx/sites-available/wtyping.ru
+sudo ln -sf /etc/nginx/sites-available/wtyping.ru /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+---
+
+### Шаг 7. Запуск приложения (Docker)
+
+```bash
+cd "$APP_DIR"
+docker compose up -d --build
+```
+
+Проверка:
+
+```bash
+docker compose ps
+curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080
+# Ожидается 200
+```
+
+---
+
+### Шаг 8. Получение SSL-сертификата
+
+```bash
+sudo certbot certonly --webroot -w /var/www/certbot -d wtyping.ru -d www.wtyping.ru --email your@email.com --agree-tos --no-eff-email
+```
+
+DH-параметры и опции SSL (один раз):
+
+```bash
+sudo openssl dhparam -out /etc/letsencrypt/ssl-dhparams.pem 2048
+sudo curl -s https://raw.githubusercontent.com/certbot/certbot/master/certbot-nginx/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf -o /etc/letsencrypt/options-ssl-nginx.conf
+```
+
+---
+
+### Шаг 9. Полный конфиг Nginx (HTTPS)
+
+```bash
+sudo cp "$APP_DIR/deploy/nginx-wtyping.ru.conf" /etc/nginx/sites-available/wtyping.ru
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+---
+
+### Шаг 10. Автопродление сертификата (cron)
+
+```bash
+sudo crontab -e
+```
+
+Добавить строку:
+
+```cron
+0 3,15 * * * certbot renew --quiet --deploy-hook "systemctl reload nginx"
+```
+
+---
+
+### Итог
+
+| Компонент | Описание |
+|-----------|----------|
+| Docker | postgres, api, frontend (порт 8080) |
+| Nginx | 80/443 → proxy на 127.0.0.1:8080 |
+| Certbot | сертификаты + продление по cron |
+
+Проверка: открыть в браузере `https://wtyping.ru`.
+
+**Полезные команды после деплоя:**
+
+```bash
+cd /var/www/typing-trainer
+docker compose logs -f          # логи
+docker compose down             # остановка
+docker compose up -d            # запуск
+git pull && docker compose up -d --build   # обновление кода
+```
+
+---
+
 ## Требования на сервере
 
 - Docker и Docker Compose
-- Nginx (на хосте, не в контейнере) — для SSL и проксирования
+- Nginx (на хосте) — для SSL и проксирования
 - Certbot (Let's Encrypt)
 
 ---
