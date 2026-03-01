@@ -12,19 +12,6 @@ function LeaderboardPage() {
     queryFn: () => leaderboardApi.get({ mode, period, sort_by: sortBy }),
   })
 
-  const getPeriodLabel = (p: LeaderboardPeriod) => {
-    switch (p) {
-      case 'day':
-        return 'День'
-      case 'week':
-        return 'Неделя'
-      case 'month':
-        return 'Месяц'
-      case 'all':
-        return 'Всё время'
-    }
-  }
-
   return (
     <div className="mx-auto max-w-6xl">
       <h1 className="mb-8 text-3xl font-bold">Рейтинг</h1>

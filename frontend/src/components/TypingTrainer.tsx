@@ -26,7 +26,7 @@ function TypingTrainer({ text, mode, textId, onFinish }: TypingTrainerProps) {
   const [isFinished, setIsFinished] = useState(false)
   const [timeElapsed, setTimeElapsed] = useState(0)
   const [sessionId, setSessionId] = useState<string | null>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const previousTextRef = useRef<string>(text)
   // Refs для хранения актуальных значений при завершении
@@ -71,6 +71,14 @@ function TypingTrainer({ text, mode, textId, onFinish }: TypingTrainerProps) {
 
       // Запустить таймер
       intervalRef.current = setInterval(() => {
+        // Проверяем, не завершена ли тренировка
+        if (isFinishingRef.current) {
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current)
+            intervalRef.current = null
+          }
+          return
+        }
         setTimeElapsed((prev) => {
           const newTime = prev + 1
           timeElapsedRef.current = newTime
@@ -137,11 +145,11 @@ function TypingTrainer({ text, mode, textId, onFinish }: TypingTrainerProps) {
     } catch (error) {
       console.error('Failed to finish training:', error)
     }
-  }, [sessionId, isStarted, onFinish])
+  }, [sessionId, isStarted, isFinished, onFinish])
 
   // Обработка ввода
   const handleInput = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       if (isFinished || !isStarted) return
 
       const input = e.target.value
@@ -209,14 +217,30 @@ function TypingTrainer({ text, mode, textId, onFinish }: TypingTrainerProps) {
         }
       }
     },
-    [currentIndex, text, isStarted, isFinished, finishTraining]
+    [currentIndex, text, isStarted, isFinished, finishTraining, errors]
   )
 
   // Обработка клавиатурных событий
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Блокировка специальных клавиш во время тренировки (кроме Backspace)
+      // Блокировка специальных клавиш во время тренировки (кроме Backspace, Enter, Tab для code)
       if (isStarted && !isFinished) {
+        // Для режима кода разрешаем Tab и Enter (они обрабатываются через onChange)
+        if (mode === 'code') {
+          // Tab - предотвращаем переключение фокуса, разрешаем ввод
+          if (e.key === 'Tab') {
+            e.preventDefault()
+            // Tab будет обработан через onChange как обычный символ
+            return
+          }
+          // Enter - разрешён для переноса строки, обрабатывается через onChange
+          if (e.key === 'Enter') {
+            // Enter обрабатывается через onChange, просто не блокируем его
+            return
+          }
+        }
+
+        // Блокировка других специальных клавиш
         if (
           e.key === 'Delete' ||
           (e.ctrlKey && e.key !== 'Backspace') ||
@@ -237,7 +261,7 @@ function TypingTrainer({ text, mode, textId, onFinish }: TypingTrainerProps) {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isStarted, isFinished, startTraining])
+  }, [isStarted, isFinished, startTraining, mode])
 
   // Сброс тренировки при смене текста
   useEffect(() => {
@@ -294,11 +318,20 @@ function TypingTrainer({ text, mode, textId, onFinish }: TypingTrainerProps) {
     previousTextRef.current = text
   }, [text, sessionId, isStarted, isFinished, timeElapsed, errors, currentIndex, correctChars]) // Срабатывает при изменении text
 
+  // Остановка таймера при завершении тренировки
+  useEffect(() => {
+    if (isFinished && intervalRef.current) {
+      clearInterval(intervalRef.current)
+      intervalRef.current = null
+    }
+  }, [isFinished])
+
   // Очистка при размонтировании
   useEffect(() => {
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current)
+        intervalRef.current = null
       }
     }
   }, [])
@@ -321,17 +354,65 @@ function TypingTrainer({ text, mode, textId, onFinish }: TypingTrainerProps) {
           className="min-h-[200px]"
         />
 
-        {/* Скрытый input для ввода */}
+        {/* Скрытый input/textarea для ввода */}
         {!isFinished && (
-          <input
-            ref={inputRef}
-            type="text"
-            value={text.slice(0, currentIndex)}
-            onChange={handleInput}
-            onPaste={(e) => e.preventDefault()} // Блокировка вставки
-            className="absolute opacity-0 pointer-events-none"
-            autoFocus
-          />
+          mode === 'code' ? (
+            <textarea
+              ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+              value={text.slice(0, currentIndex)}
+              onChange={handleInput}
+              onPaste={(e) => e.preventDefault()} // Блокировка вставки
+              onKeyDown={(e) => {
+                // Предотвращаем стандартное поведение Tab (переключение фокуса)
+                if (e.key === 'Tab' && isStarted && !isFinished) {
+                  e.preventDefault()
+                  // Если следующий символ в тексте - табуляция, вставляем её
+                  // Иначе вставляем пробел (или несколько пробелов для отступа)
+                  const expectedChar = text[currentIndex]
+                  if (expectedChar === '\t') {
+                    // Ожидается табуляция - вставляем её программно
+                    const textarea = e.target as HTMLTextAreaElement
+                    const currentValue = textarea.value
+                    textarea.value = currentValue + '\t'
+                    const inputEvent = new Event('input', { bubbles: true })
+                    textarea.dispatchEvent(inputEvent)
+                  } else if (expectedChar === '\n') {
+                    // Если следующий символ - перенос строки, не обрабатываем Tab
+                    return
+                  } else {
+                    // Ожидается пробел или другой символ - вставляем пробел
+                    const textarea = e.target as HTMLTextAreaElement
+                    const currentValue = textarea.value
+                    textarea.value = currentValue + ' '
+                    const inputEvent = new Event('input', { bubbles: true })
+                    textarea.dispatchEvent(inputEvent)
+                  }
+                }
+              }}
+              className="absolute opacity-0 pointer-events-none resize-none overflow-hidden"
+              autoFocus
+              rows={1}
+              cols={1}
+              style={{ 
+                width: '1px', 
+                height: '1px',
+                border: 'none',
+                outline: 'none',
+                padding: 0,
+                margin: 0
+              }}
+            />
+          ) : (
+            <input
+              ref={inputRef as React.RefObject<HTMLInputElement>}
+              type="text"
+              value={text.slice(0, currentIndex)}
+              onChange={handleInput}
+              onPaste={(e) => e.preventDefault()} // Блокировка вставки
+              className="absolute opacity-0 pointer-events-none"
+              autoFocus
+            />
+          )
         )}
 
         {/* Индикатор прогресса */}

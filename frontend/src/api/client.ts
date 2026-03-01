@@ -1,6 +1,9 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// В production используем относительный путь (через nginx proxy)
+// Nginx проксирует /api/* на backend, поэтому baseURL должен быть пустым
+// В development используем прямой URL или из переменной окружения
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? '' : 'http://localhost:8000')
 
 // Create axios instance
 const apiClient = axios.create({
@@ -79,8 +82,10 @@ apiClient.interceptors.response.use(
 
       try {
         // Пытаемся обновить access token через refresh endpoint
+        // Используем тот же baseURL что и в apiClient
+        const refreshUrl = API_URL ? `${API_URL}/api/auth/refresh` : '/api/auth/refresh'
         const response = await axios.post(
-          `${API_URL}/api/auth/refresh`,
+          refreshUrl,
           {},
           {
             withCredentials: true, // Отправляем httpOnly cookie с refresh token
