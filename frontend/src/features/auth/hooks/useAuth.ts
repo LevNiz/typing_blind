@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { authApi, User } from '@/api/auth'
 import { setAccessToken } from '@/api/client'
-import type { RegisterFormData, LoginFormData } from '../../../lib/validations'
+import type { RegisterFormData, LoginFormData } from '../../../schemas/auth'
 
 export const useAuth = () => {
   const queryClient = useQueryClient()

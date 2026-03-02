@@ -1,7 +1,7 @@
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Link } from 'react-router-dom'
-import { loginSchema, type LoginFormData } from '../lib/validations'
+import { loginSchema, type LoginFormData } from '../schemas/auth'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 
 function LoginPage() {
