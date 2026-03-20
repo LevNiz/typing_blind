@@ -1,6 +1,7 @@
 """Wikipedia service for fetching random articles."""
 import re
 import urllib.parse
+import unicodedata
 from typing import Optional
 
 import httpx
@@ -206,6 +207,27 @@ class WikipediaService:
         # Remove reference links like [1], [2], [источник?]
         text = re.sub(r'\[\d+\]', '', text)
         text = re.sub(r'\[[^\]]*\]', '', text)
+
+        # Normalize dashes for easier typing: em/en/minus/non-breaking hyphen -> regular hyphen
+        text = re.sub(r"[—–−‑]", "-", text)
+
+        # Remove coordinate patterns (e.g. 55°45′21″N 37°37′04″E)
+        text = re.sub(
+            r"\b\d{1,3}(?:[.,]\d+)?\s*°\s*\d{0,2}(?:[.,]\d+)?\s*[′'’]?\s*"
+            r"\d{0,2}(?:[.,]\d+)?\s*[″\"”]?\s*[NSEWСЮВЗ]\.?"
+            r"(?:\s+\d{1,3}(?:[.,]\d+)?\s*°\s*\d{0,2}(?:[.,]\d+)?\s*[′'’]?\s*"
+            r"\d{0,2}(?:[.,]\d+)?\s*[″\"”]?\s*[NSEWСЮВЗ]\.?)?",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+        # Remove decimal coordinates (e.g. 55.7558, 37.6176)
+        text = re.sub(r"\b-?\d{1,2}\.\d+\s*,\s*-?\d{1,3}\.\d+\b", "", text)
+
+        # Remove apostrophe-like marks and stress marks above letters
+        text = re.sub(r"[`´'’ʼ]", "", text)
+        text = unicodedata.normalize("NFKD", text)
+        text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
         
         # Remove multiple spaces
         text = re.sub(r'\s+', ' ', text)

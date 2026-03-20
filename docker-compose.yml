@@ -63,4 +63,3 @@ volumes:
 networks:
   typing_trainer_network:
     driver: bridge
-
